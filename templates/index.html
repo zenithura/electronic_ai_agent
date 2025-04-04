@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Interactive PDF Assistant</h1>
+            <p class="subtitle">Chat with PDF Documents</p>
+        </header>
+
+        <main>
+            <div class="pdf-selection">
+                <h2>
+                    <span>Select PDF</span>
+                    <button id="toggle-pdf-list" class="toggle-btn">
+                        <i class="fa fa-chevron-down" aria-hidden="true"></i>
+                    </button>
+                </h2>
+                <div id="pdf-list-container">
+                    {% if pdf_files %}
+                        <ul class="pdf-list">
+                            {% for pdf in pdf_files %}
+                                <li class="pdf-item {% if selected_pdf == pdf %}selected{% endif %}">
+                                    <button class="pdf-select-btn" data-pdf-id="{{ pdf.id }}" data-filename="{{ pdf.file_name }}">
+                                        <i class="fa fa-file-pdf"></i>
+                                        <span>{{ pdf.file_name }}</span>
+                                    </button>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="no-pdfs">No PDF files found. Please upload a new PDF.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div id="chat-container" class="chat-container {% if not selected_pdf %}disabled{% endif %}">
+                <div class="chat-header">
+                    {% if selected_pdf %}
+                        <h2 class="chat-title">
+                            <i class="fa fa-file-pdf"></i>
+                            <span id="current-pdf-title">{{ selected_pdf }}</span>
+                        </h2>
+                    {% else %}
+                        <h2 class="chat-title">Please select a PDF</h2>
+                    {% endif %}
+                    <div class="quick-commands">
+                        <button class="cmd-btn" data-cmd="/summary" {% if not selected_pdf %}disabled{% endif %}>
+                            <i class="fa fa-book"></i> Summary
+                        </button>
+                        <button class="cmd-btn" data-cmd="/quiz" {% if not selected_pdf %}disabled{% endif %}>
+                            <i class="fa fa-question-circle"></i> Quiz
+                        </button>
+                        <button class="cmd-btn" data-cmd="/concepts" {% if not selected_pdf %}disabled{% endif %}>
+                            <i class="fa fa-key"></i> Concepts
+                        </button>
+                    </div>
+                </div>
+
+                <div id="chat-messages" class="chat-messages">
+                    {% if selected_pdf %}
+                        <div class="message assistant">
+                            <div class="message-content">
+                                <p>Hello! You can ask questions about <strong>{{ selected_pdf }}</strong> file.</p>
+                                <p id="pdf-info-text">{{ session.get('pdf_info', '') }}</p>
+                            </div>
+                            <span class="message-time">{{ session.get('timestamp', '') }}</span>
+                        </div>
+                    {% else %}
+                        <div class="message assistant welcome">
+                            <div class="message-content">
+                                <p>Welcome! Please select a PDF you want to chat with.</p>
+                                <p>You can ask questions about the selected document, generate summaries, or create quizzes.</p>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="chat-input">
+                    <form id="chat-form">
+                        <div class="image-preview-container" id="image-preview-container">
+                            <img id="image-preview" class="hidden" src="" alt="Uploaded image">
+                            <button type="button" id="clear-image-btn" class="clear-image-btn hidden">
+                                <i class="fa fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="input-container">
+                            <input 
+                                type="text" 
+                                id="message-input" 
+                                placeholder="Type your message..."
+                                {% if not selected_pdf %}disabled{% endif %}
+                            >
+                            <div class="input-buttons">
+                                <label for="image-upload" class="upload-btn" {% if not selected_pdf %}disabled{% endif %}>
+                                    <i class="fa fa-image"></i>
+                                    <input type="file" id="image-upload" accept="image/*" hidden>
+                                </label>
+                                <button 
+                                    type="submit" 
+                                    id="send-btn"
+                                    {% if not selected_pdf %}disabled{% endif %}
+                                >
+                                    <i class="fa fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </main>
+
+        <div id="loading-spinner" class="spinner-container hidden">
+            <div class="spinner"></div>
+        </div>
+
+        <div id="toast-container" class="toast-container"></div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html> 

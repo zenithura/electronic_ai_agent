@@ -1,0 +1,7 @@
+supabase==1.2.0
+flask
+Pillow
+PyPDF2
+pymupdf
+google-generativeai
+python-dotenv 

@@ -1,0 +1,35 @@
+# Geçici dosyalar
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Derleme ve build klasörleri
+/node_modules
+/dist
+/build
+/.next
+/out
+
+# Ortam değişkenleri
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE ve editör dosyaları
+/.idea
+/.vscode
+*.sublime-project
+*.sublime-workspace
+
+# Paket yöneticisi dosyaları
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Önbellek
+.cache
