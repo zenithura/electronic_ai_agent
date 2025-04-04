@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import json
 import traceback
 from supabase import create_client, Client
+from flask_cors import CORS  # CORS için
 
 # PDF işleme için
 from PyPDF2 import PdfReader
@@ -35,10 +36,13 @@ ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 UPLOAD_FOLDER = 'uploads'  # Geçici yükleme işlemleri için
 
 app = Flask(__name__)
+CORS(app)  # CORS desteği ekle
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'gizli-anahtar-burada')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64 MB max upload olarak artırıldı
 app.config['SESSION_TYPE'] = 'filesystem'
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # Session ömrü (saniye)
+app.config['JSON_AS_ASCII'] = False  # UTF-8 karakter desteği
 
 class InteractivePDFAssistant:
     """
@@ -794,91 +798,102 @@ def select_pdf():
     If a file is selected or uploaded, initializes the PDF assistant.
     """
     try:
+        print("select_pdf route başlatıldı...")
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
+            print("API anahtarı bulunamadı!")
             return jsonify({"error": "API key not found. Check your .env file."}), 500
+        
+        print(f"API anahtarı bulundu: {api_key[:5]}...{api_key[-5:]}")
         
         # Create assistant object and save to session
         if 'pdf_assistant' not in session:
             session['pdf_assistant'] = {}
         
+        print(f"Request form: {list(request.form.keys())}")
+        print(f"Request files: {list(request.files.keys()) if request.files else 'Dosya yok'}")
+        
         if 'file' in request.files:
             # User is uploading a file
             file = request.files['file']
+            print(f"Yüklenen dosya: {file.filename if file and file.filename else 'İsim yok'}")
             
             if file and file.filename and allowed_file(file.filename, ALLOWED_EXTENSIONS):
                 # Create a secure filename
                 filename = secure_filename(file.filename)
+                print(f"Güvenli dosya adı: {filename}")
                 
                 # Upload file to Supabase
                 pdf_data = upload_pdf_to_supabase(file, filename)
+                print(f"PDF veri dönüşü: {pdf_data}")
                 
                 if not pdf_data:
+                    print("Supabase'e yükleme başarısız!")
                     return jsonify({"error": "Upload to Supabase failed."}), 500
                 
-                # Save PDF ID to session
+                # Başarılı yükleme yanıtı - asenkron işlemeyi simüle et
                 session['current_pdf_id'] = pdf_data['id']
+                session['pdf_assistant'] = {
+                    'pdf_id': pdf_data['id'],
+                    'title': filename,
+                    'chat_history': []
+                }
                 
-                # Load PDF to assistant (directly from Supabase)
-                assistant = InteractivePDFAssistant(api_key)
-                if assistant.load_pdf_from_supabase(pdf_data['id'], filename):
-                    # Store assistant info in session
-                    session['pdf_assistant'] = {
-                        'pdf_id': pdf_data['id'],
-                        'title': filename,
-                        'chat_history': []
-                    }
-                    return jsonify({
-                        "success": True,
-                        "message": f"PDF uploaded: {filename}",
-                        "pdf_id": pdf_data['id'],
-                        "pdf_title": filename
-                    })
-                else:
-                    return jsonify({"error": "PDF could not be loaded or processed."}), 400
+                return jsonify({
+                    "success": True,
+                    "message": f"PDF uploaded: {filename}",
+                    "pdf_id": pdf_data['id'],
+                    "pdf_title": filename,
+                    "status": "loading"
+                })
             else:
+                print("Geçersiz dosya türü veya boş dosya!")
                 return jsonify({"error": "Invalid file type. Please upload a PDF."}), 400
         
         elif 'select_existing' in request.form:
             # Kullanıcı mevcut bir PDF seçiyor
             pdf_id = request.form.get('pdf_id')
+            print(f"Seçilen PDF ID: {pdf_id}")
+            
             if not pdf_id:
+                print("PDF ID sağlanmadı!")
                 return jsonify({"error": "PDF ID not provided."}), 400
             
             try:
                 # Supabase'den PDF bilgilerini al
-                print(f"PDF ID: {pdf_id} querying...")
-                response = supabase.table("pdfs").select("*").eq("id", pdf_id).execute()
+                print(f"PDF ID: {pdf_id} sorgulanıyor...")
+                
+                try:
+                    response = supabase.table("pdfs").select("*").eq("id", pdf_id).execute()
+                    print(f"Sorgu yanıtı: {response}")
+                except Exception as db_err:
+                    print(f"Supabase sorgu hatası: {str(db_err)}")
+                    return jsonify({"error": f"Database query error: {str(db_err)}"}), 500
                 
                 if not response.data:
-                    print(f"PDF ID: {pdf_id} not found.")
+                    print(f"PDF ID: {pdf_id} bulunamadı.")
                     return jsonify({"error": "PDF not found."}), 404
                 
                 pdf_record = response.data[0]
                 filename = pdf_record["file_name"]
-                print(f"PDF found: {filename}")
+                print(f"PDF bulundu: {filename}")
                 
-                # PDF'i asistana yükle (doğrudan Supabase'den)
-                assistant = InteractivePDFAssistant(api_key)
-                if assistant.load_pdf_from_supabase(pdf_id, filename):
-                    print(f"PDF loaded to assistant: {filename}")
-                    # Session'da asistan bilgilerini sakla
-                    session['pdf_assistant'] = {
-                        'pdf_id': pdf_id,
-                        'title': filename,
-                        'chat_history': []
-                    }
-                    session['current_pdf_id'] = pdf_id
-                    
-                    return jsonify({
-                        "success": True,
-                        "message": f"PDF selected: {filename}",
-                        "pdf_id": pdf_id,
-                        "pdf_title": filename
-                    })
-                else:
-                    print(f"PDF loading failed: {filename}")
-                    return jsonify({"error": "PDF loading failed or processing failed."}), 400
+                # Session'da asistan bilgilerini sakla - asenkron işleme için hemen yanıt ver
+                session['pdf_assistant'] = {
+                    'pdf_id': pdf_id,
+                    'title': filename,
+                    'chat_history': []
+                }
+                session['current_pdf_id'] = pdf_id
+                
+                # Başarılı yanıt döndür - asistanı arka planda yükle, ön yüzde gösterilebilir
+                return jsonify({
+                    "success": True,
+                    "message": f"PDF selected: {filename}",
+                    "pdf_id": pdf_id,
+                    "pdf_title": filename,
+                    "status": "loading"
+                })
                 
             except Exception as e:
                 error_msg = f"PDF selection error: {str(e)}"
@@ -886,6 +901,9 @@ def select_pdf():
                 traceback_str = traceback.format_exc()
                 print(f"Error details: {traceback_str}")
                 return jsonify({"error": error_msg}), 500
+        else:
+            print(f"Geçersiz istek: form={request.form}, files={request.files}")
+            return jsonify({"error": "Invalid request content. No file or PDF ID provided."}), 400
     except Exception as e:
         error_msg = f"PDF processing error: {str(e)}"
         print(error_msg)
@@ -1305,6 +1323,14 @@ def get_all_pdfs():
         print(f"Error details: {traceback_str}")
         return []
 
+# CORS başlıkları
+@app.after_request
+def add_cors_headers(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 # Vercel için gerekli
 if __name__ == '__main__':
     # Gerekli klasörlerin varlığını kontrol et, yoksa oluştur
@@ -1369,5 +1395,82 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"Supabase connection error: {str(e)}")
     
-    app.run(debug=True) 
+    app.run(debug=True, threaded=True, host='0.0.0.0') 
+
+# PDF yükleme durumunu kontrol eden yeni endpoint
+@app.route('/pdf_load_status', methods=['GET'])
+def pdf_load_status():
+    """PDF yükleme durumunu kontrol eder"""
+    pdf_id = request.args.get('pdf_id')
+    
+    if not pdf_id:
+        return jsonify({"error": "PDF ID not provided"}), 400
+    
+    # Session'da saklanan PDF bilgilerini kontrol et
+    pdf_info = session.get('pdf_assistant', {})
+    current_pdf_id = session.get('current_pdf_id')
+    
+    if not pdf_info or not current_pdf_id or current_pdf_id != pdf_id:
+        return jsonify({
+            "success": False,
+            "status": "not_found",
+            "message": "PDF not selected or session expired"
+        })
+    
+    # PDF asistanı manuel olarak başlatmak için
+    try:
+        # Supabase'den PDF bilgilerini al
+        response = supabase.table("pdfs").select("*").eq("id", pdf_id).execute()
+        
+        if not response.data:
+            return jsonify({"success": False, "status": "not_found", "message": "PDF not found in database"})
+        
+        pdf_record = response.data[0]
+        filename = pdf_record["file_name"]
+        
+        # Burada asistanı başlatmaya çalışıyoruz
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            return jsonify({"success": False, "status": "error", "message": "API key not found"})
+        
+        try:
+            # Asistanı oluştur ve PDF'i yüklemeye çalış
+            assistant = InteractivePDFAssistant(api_key)
+            load_success = assistant.load_pdf_from_supabase(pdf_id, filename)
+            
+            if load_success:
+                return jsonify({
+                    "success": True,
+                    "status": "ready",
+                    "message": f"PDF loaded: {filename}"
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "status": "error",
+                    "message": "PDF loading failed"
+                })
+                
+        except Exception as load_err:
+            print(f"PDF yükleme hatası: {str(load_err)}")
+            traceback_str = traceback.format_exc()
+            print(f"Yükleme hata ayrıntıları: {traceback_str}")
+            
+            return jsonify({
+                "success": False,
+                "status": "error",
+                "message": f"PDF loading error: {str(load_err)}"
+            })
+        
+    except Exception as e:
+        error_msg = f"Status check error: {str(e)}"
+        print(error_msg)
+        traceback_str = traceback.format_exc()
+        print(f"Error details: {traceback_str}")
+        
+        return jsonify({
+            "success": False,
+            "status": "error",
+            "message": error_msg
+        })
 

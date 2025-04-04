@@ -109,22 +109,62 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('select_existing', 'true');
             formData.append('pdf_id', pdfId);
             
+            console.log(`PDF seçiliyor: ${filename} (ID: ${pdfId})`);
+            
             const response = await fetch('/select_pdf', {
                 method: 'POST',
                 body: formData
             });
             
-            const data = await response.json();
+            console.log(`Yanıt alındı - Durum: ${response.status} ${response.statusText}`);
+            console.log(`İçerik türü: ${response.headers.get('content-type')}`);
+            
+            // Yanıt başarılı değilse
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Sunucu hatası ${response.status}: ${errorText}`);
+                throw new Error(`Server error ${response.status}: ${errorText}`);
+            }
+            
+            // JSON yanıtını kontrol et
+            const contentType = response.headers.get('content-type');
+            let data;
+            
+            if (contentType && contentType.includes('application/json')) {
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    console.error('JSON ayrıştırma hatası:', jsonError);
+                    const rawText = await response.text();
+                    console.error('Ham yanıt:', rawText);
+                    throw new Error(`JSON parsing error: ${jsonError.message}. Raw response: ${rawText.substring(0, 100)}...`);
+                }
+            } else {
+                const textResponse = await response.text();
+                console.error('Beklenmeyen yanıt türü:', contentType);
+                console.error('Ham yanıt:', textResponse.substring(0, 200));
+                throw new Error(`Unexpected response type: ${contentType || 'unknown'}`);
+            }
+            
+            console.log('İşlenen veri:', data);
             
             if (data.success) {
+                // PDF yükleniyor mesajı
+                if (data.status === "loading") {
+                    showToast(`${filename} yükleniyor. Lütfen bekleyin...`, 'info');
+                    await pollPdfLoadStatus(pdfId, filename);
+                }
+                
                 // Remove selected class from all PDF buttons
                 document.querySelectorAll('.pdf-item').forEach(item => {
                     item.classList.remove('selected');
                 });
                 
                 // Mark selected PDF
-                const selectedItem = document.querySelector(`[data-pdf-id="${pdfId}"]`).parentElement;
-                selectedItem.classList.add('selected');
+                const selectedItem = document.querySelector(`[data-pdf-id="${pdfId}"]`)?.parentElement;
+                if (selectedItem) {
+                    selectedItem.classList.add('selected');
+                }
                 
                 // Enable chat area
                 chatContainer.classList.remove('disabled');
@@ -152,14 +192,66 @@ document.addEventListener('DOMContentLoaded', () => {
                     pdfList.classList.add('hidden');
                 }
             } else {
-                showToast(`Error: ${data.error}`, 'error');
+                showToast(`Error: ${data.error || 'Unknown error'}`, 'error');
             }
         } catch (err) {
             console.error('PDF selection error:', err);
-            showToast('An error occurred while selecting the PDF.', 'error');
+            showToast(`PDF selection error: ${err.message || 'Unknown error'}`, 'error');
         } finally {
             hideLoading();
         }
+    }
+    
+    // PDF yükleme durumunu kontrol etme fonksiyonu
+    async function pollPdfLoadStatus(pdfId, filename) {
+        let maxAttempts = 30; // Maksimum 30 deneme
+        let attempt = 0;
+        let status = "loading";
+        
+        showToast(`${filename} yükleniyor, lütfen bekleyin...`, 'info', 3000);
+        
+        while (status === "loading" && attempt < maxAttempts) {
+            attempt++;
+            console.log(`PDF yükleme durum kontrolü ${attempt}/${maxAttempts}`);
+            
+            try {
+                const response = await fetch(`/pdf_load_status?pdf_id=${pdfId}`);
+                
+                if (!response.ok) {
+                    console.error(`Durum kontrolü başarısız: ${response.status}`);
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 saniye bekle
+                    continue;
+                }
+                
+                const data = await response.json();
+                console.log('PDF yükleme durumu:', data);
+                
+                if (data.success && data.status === "ready") {
+                    status = "ready";
+                    showToast(`${filename} başarıyla yüklendi!`, 'success');
+                    return true;
+                } else if (data.status === "error") {
+                    status = "error";
+                    showToast(`PDF yükleme hatası: ${data.message}`, 'error');
+                    return false;
+                }
+                
+                // 2 saniye bekle ve tekrar dene
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (err) {
+                console.error('PDF durum kontrolü hatası:', err);
+                // Hata olsa bile denemeye devam et
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+        
+        if (status === "loading") {
+            // Zaman aşımı, ama yinede interface'i etkinleştir - arka planda yükleniyor olabilir
+            showToast('PDF yükleme zaman aşımı. Yine de devam edilebilir.', 'warning');
+            return false;
+        }
+        
+        return status === "ready";
     }
     
     // Mesaj Gönderme Fonksiyonu
@@ -310,7 +402,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Show Toast Notification
-    function showToast(message, type = 'info') {
+    function showToast(message, type = 'info', duration = 3000) {
         const toastContainer = document.getElementById('toast-container');
         
         const toast = document.createElement('div');
@@ -322,12 +414,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         toastContainer.appendChild(toast);
         
-        // Remove notification after 3 seconds
+        // Remove notification after duration
         setTimeout(() => {
             toast.style.opacity = '0';
             setTimeout(() => {
                 toastContainer.removeChild(toast);
             }, 300);
-        }, 3000);
+        }, duration);
     }
 }); 
