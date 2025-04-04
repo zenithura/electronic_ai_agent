@@ -1305,13 +1305,14 @@ def get_all_pdfs():
         print(f"Error details: {traceback_str}")
         return []
 
+# Vercel için gerekli
 if __name__ == '__main__':
     # Gerekli klasörlerin varlığını kontrol et, yoksa oluştur
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
         print(f"{app.config['UPLOAD_FOLDER']} directory created.")
     
-    # Supabase bağlantısını ve PDF bucket'ını kontrol et
+    # Supabase bağlantısını ve bucket'ları kontrol et
     try:
         print("Supabase connection check...")
         
@@ -1369,3 +1370,10 @@ if __name__ == '__main__':
         print(f"Supabase connection error: {str(e)}")
     
     app.run(debug=True) 
+
+# Vercel için gerekli - yükleme klasörünü oluştur
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
+
+# Vercel tarafından kullanılacak olan app nesnesi
+application = app 
