@@ -1371,9 +1371,3 @@ if __name__ == '__main__':
     
     app.run(debug=True) 
 
-# Vercel için gerekli - yükleme klasörünü oluştur
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
-
-# Vercel tarafından kullanılacak olan app nesnesi
-application = app 
